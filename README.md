@@ -102,7 +102,7 @@ sudo ufw reload
 sudo ufw status verbose
 ```
 
-## SSL/TLS
+## SSL/TLS (untested)
 
 PDFrenderServer uses HTTPS by default, but the development certificate is not publicly trusted. At this stage, the simplest setup is to accept or bypass the browser warning on the TV.
 
