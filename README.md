@@ -18,6 +18,44 @@ https://PDFrenderServerIPAddress/
 
 The server also supports local testing over HTTP with `--http`.
 
+## TV Without SSL Warnings
+
+Most TV browsers will only avoid HTTPS warnings when the certificate chains to a certificate authority already trusted by the TV. A local self-signed certificate, or a certificate signed by `scripts/setup-local-tls.sh`, will still warn unless the TV lets you import and trust `certs/local/pdfrenderserver-local-ca.crt`.
+
+The reliable TV-friendly setup is to use a real DNS name and a publicly trusted certificate:
+
+```text
+https://pdfrender.example.com/https://example.com/file.pdf
+```
+
+Use this shape instead of the raw LAN IP address:
+
+```text
+https://192.168.1.50/https://example.com/file.pdf
+```
+
+Recommended deployment:
+
+1. Choose a DNS name you control, for example `pdfrender.example.com`.
+2. Configure your router, Pi-hole, dnsmasq, or other local DNS so the TV resolves that name to the Ubuntu server's LAN IP address.
+3. Obtain a publicly trusted TLS certificate for that DNS name, for example with Let's Encrypt/Certbot.
+4. Run PDFrenderServer with that certificate and key.
+
+DNS validation is usually the best certificate validation method for a LAN-only server because the PDFrenderServer host does not need to accept inbound traffic from the public internet. With Certbot's manual DNS flow:
+
+```bash
+sudo apt-get install -y certbot
+sudo certbot certonly --manual --preferred-challenges dns -d pdfrender.example.com
+```
+
+Certbot will ask you to create a temporary DNS TXT record. After the certificate is issued, run PDFrenderServer with the generated files:
+
+```bash
+sudo python3 -m pdfrenderserver.server --host 0.0.0.0 --port 443 --cert-file /etc/letsencrypt/live/pdfrender.example.com/fullchain.pem --key-file /etc/letsencrypt/live/pdfrender.example.com/privkey.pem
+```
+
+For a long-running installation, use a Certbot DNS plugin or renewal hook for your DNS provider so the certificate can renew automatically. Manual DNS certificates require manual renewal unless you add automation hooks.
+
 ## Installation
 
 A new Ubuntu 24.04 LTS installation needs only the system packages below plus this repository. There are no Python packages to install with `pip`, and a virtual environment is not required.
@@ -122,6 +160,29 @@ sudo systemctl enable --now pdfrenderserver
 ```
 
 The service binds to `0.0.0.0:443` and uses `/var/cache/pdfrenderserver` for downloaded PDFs, rendered pages, and its default TLS certificate. To use the trusted local certificate with systemd, pass `--cert-file` and `--key-file` in `systemd/pdfrenderserver.service` after copying the certificate files to a readable location on the server.
+
+For a Let's Encrypt certificate, use a systemd override so the private key can stay root-readable while still being passed to the hardened service:
+
+```bash
+sudo systemctl edit pdfrenderserver
+```
+
+Use this override, replacing `pdfrender.example.com` with your certificate name:
+
+```ini
+[Service]
+LoadCredential=pdfrenderserver.crt:/etc/letsencrypt/live/pdfrender.example.com/fullchain.pem
+LoadCredential=pdfrenderserver.key:/etc/letsencrypt/live/pdfrender.example.com/privkey.pem
+Environment=PDFRENDERSERVER_CERT_FILE=%d/pdfrenderserver.crt
+Environment=PDFRENDERSERVER_KEY_FILE=%d/pdfrenderserver.key
+```
+
+Then reload and restart:
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl restart pdfrenderserver
+```
 
 ## Tests
 
