@@ -18,17 +18,33 @@ https://PDFrenderServerIPAddress/
 
 The server also supports local testing over HTTP with `--http`.
 
-## Prerequisites
+## Installation
 
-Runtime packages:
+A new Ubuntu 24.04 LTS installation needs only the system packages below plus this repository. There are no Python packages to install with `pip`, and a virtual environment is not required.
+
+### Prerequisites
+
+Install the runtime packages:
 
 ```bash
+sudo apt-get update
 sudo apt-get install -y python3 poppler-utils openssl
 ```
 
 `python3` runs the web server, `poppler-utils` provides `pdfinfo` and `pdftoppm`, and `openssl` creates a self-signed HTTPS certificate for LAN use.
 
-## Run From The Repository
+### Get The Source
+
+Clone or copy this repository onto the Ubuntu host:
+
+```bash
+git clone <repository-url> PDFrenderServer
+cd PDFrenderServer
+```
+
+If the repository is already on the machine, just change into the repository directory before running the commands below.
+
+### Run From The Repository
 
 From this repository:
 
@@ -56,9 +72,9 @@ For local development without TLS:
 ./scripts/run-http-dev.sh
 ```
 
-## Systemd
+### Install As A System Service
 
-An example unit file is provided at `systemd/pdfrenderserver.service`. A typical install is:
+For a persistent LAN server, install the included systemd service:
 
 ```bash
 sudo mkdir -p /opt/PDFrenderServer
@@ -79,4 +95,3 @@ python3 -m unittest discover -s tests
 ```
 
 The test starts a temporary PDF origin server, starts PDFrenderServer, requests a rendered viewer page, and verifies the generated JPEG page image.
-
