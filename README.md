@@ -2,59 +2,28 @@
 
 PDFrenderServer is a small HTTPS web server for viewing PDFs on devices whose browsers cannot render PDF files natively. It downloads a PDF from a supplied URL, renders pages to JPEG images with Poppler, and serves a scrollable image viewer with overlay zoom controls.
 
-## URL format
-
-Open a PDF directly:
-
-```text
-https://PDFrenderServerIPAddress/https://example.com/file.pdf
-```
+## URL Format
 
 Open the manual entry form:
 
 ```text
-https://PDFrenderServerIPAddress/
+https://PDFrenderServerIPAddress:8443/
 ```
 
-The server also supports local testing over HTTP with `--http`.
-
-## TV Without SSL Warnings
-
-Most TV browsers will only avoid HTTPS warnings when the certificate chains to a certificate authority already trusted by the TV. A local self-signed certificate, or a certificate signed by `scripts/setup-local-tls.sh`, will still warn unless the TV lets you import and trust `certs/local/pdfrenderserver-local-ca.crt`.
-
-The reliable TV-friendly setup is to use a real DNS name and a publicly trusted certificate:
+Open a PDF directly:
 
 ```text
-https://pdfrender.example.com/https://example.com/file.pdf
+https://PDFrenderServerIPAddress:8443/https://example.com/file.pdf
 ```
 
-Use this shape instead of the raw LAN IP address:
+Example for a server at `192.168.0.87`:
 
 ```text
-https://192.168.1.50/https://example.com/file.pdf
+https://192.168.0.87:8443/
+https://192.168.0.87:8443/https://example.com/file.pdf
 ```
 
-Recommended deployment:
-
-1. Choose a DNS name you control, for example `pdfrender.example.com`.
-2. Configure your router, Pi-hole, dnsmasq, or other local DNS so the TV resolves that name to the Ubuntu server's LAN IP address.
-3. Obtain a publicly trusted TLS certificate for that DNS name, for example with Let's Encrypt/Certbot.
-4. Run PDFrenderServer with that certificate and key.
-
-DNS validation is usually the best certificate validation method for a LAN-only server because the PDFrenderServer host does not need to accept inbound traffic from the public internet. With Certbot's manual DNS flow:
-
-```bash
-sudo apt-get install -y certbot
-sudo certbot certonly --manual --preferred-challenges dns -d pdfrender.example.com
-```
-
-Certbot will ask you to create a temporary DNS TXT record. After the certificate is issued, run PDFrenderServer with the generated files:
-
-```bash
-sudo python3 -m pdfrenderserver.server --host 0.0.0.0 --port 443 --cert-file /etc/letsencrypt/live/pdfrender.example.com/fullchain.pem --key-file /etc/letsencrypt/live/pdfrender.example.com/privkey.pem
-```
-
-For a long-running installation, use a Certbot DNS plugin or renewal hook for your DNS provider so the certificate can renew automatically. Manual DNS certificates require manual renewal unless you add automation hooks.
+If the service is installed on standard HTTPS port `443`, omit `:8443`.
 
 ## Installation
 
@@ -69,7 +38,7 @@ sudo apt-get update
 sudo apt-get install -y python3 poppler-utils openssl ca-certificates
 ```
 
-`python3` runs the web server, `poppler-utils` provides `pdfinfo` and `pdftoppm`, `openssl` creates TLS certificates, and `ca-certificates` lets Ubuntu trust a local certificate authority.
+`python3` runs the web server, `poppler-utils` provides `pdfinfo` and `pdftoppm`, `openssl` creates TLS certificates, and `ca-certificates` provides Ubuntu's certificate store tools.
 
 ### Get The Source
 
@@ -90,62 +59,26 @@ From this repository:
 ./scripts/run-dev.sh
 ```
 
-This starts HTTPS on port `8443` by default:
+This starts PDFrenderServer on all network interfaces using HTTPS port `8443`:
 
 ```text
 https://127.0.0.1:8443/
+https://LANIPAddress:8443/
 ```
 
-If you have not configured trusted local TLS yet, the browser will warn that the site is not secure. That warning means the certificate is not trusted by the browser; it does not mean the server failed to start HTTPS.
+Keep the terminal open while testing. Browser certificate warnings are expected with the default local certificate; see `SSL/TLS` below.
 
-### Configure Trusted Local TLS
+### Firewall
 
-To use `https://127.0.0.1:8443/` without a browser certificate warning, create a local certificate authority and a server certificate:
+If UFW is active and you want to access PDFrenderServer from a TV or another LAN device, allow port `8443`:
 
 ```bash
-./scripts/setup-local-tls.sh
+sudo ufw allow 8443/tcp comment 'PDFrenderServer HTTPS dev'
+sudo ufw reload
+sudo ufw status verbose
 ```
 
-Then trust the generated local CA on this Ubuntu machine:
-
-```bash
-sudo cp certs/local/pdfrenderserver-local-ca.crt /usr/local/share/ca-certificates/pdfrenderserver-local-ca.crt
-sudo update-ca-certificates
-```
-
-Restart the browser, then run:
-
-```bash
-./scripts/run-dev.sh
-```
-
-`run-dev.sh` automatically uses `certs/local/pdfrenderserver.crt` and `certs/local/pdfrenderserver.key` when they exist.
-
-For LAN use, include the server IP address or DNS name when generating the certificate. Every address you type in the browser must be listed in the certificate:
-
-```bash
-./scripts/setup-local-tls.sh 192.168.1.50 pdfrenderserver.local
-```
-
-Each client device must trust `certs/local/pdfrenderserver-local-ca.crt`. If a TV or another browser does not trust that CA, it will still show a warning even though the server is using HTTPS.
-
-For the exact no-port URL shape in the project brief, run on port `443`:
-
-```bash
-sudo python3 -m pdfrenderserver.server --host 0.0.0.0 --port 443
-```
-
-To run on port `443` with the trusted local certificate:
-
-```bash
-sudo python3 -m pdfrenderserver.server --host 0.0.0.0 --port 443 --cert-file certs/local/pdfrenderserver.crt --key-file certs/local/pdfrenderserver.key
-```
-
-For local development without TLS:
-
-```bash
-./scripts/run-http-dev.sh
-```
+The status output should show an allow rule for `8443/tcp`.
 
 ### Install As A System Service
 
@@ -159,30 +92,99 @@ sudo systemctl daemon-reload
 sudo systemctl enable --now pdfrenderserver
 ```
 
-The service binds to `0.0.0.0:443` and uses `/var/cache/pdfrenderserver` for downloaded PDFs, rendered pages, and its default TLS certificate. To use the trusted local certificate with systemd, pass `--cert-file` and `--key-file` in `systemd/pdfrenderserver.service` after copying the certificate files to a readable location on the server.
+The service binds to `0.0.0.0:443` and uses `/var/cache/pdfrenderserver` for downloaded PDFs and rendered pages. Certificate behavior is covered in `SSL/TLS` below.
 
-For a Let's Encrypt certificate, use a systemd override so the private key can stay root-readable while still being passed to the hardened service:
-
-```bash
-sudo systemctl edit pdfrenderserver
-```
-
-Use this override, replacing `pdfrender.example.com` with your certificate name:
-
-```ini
-[Service]
-LoadCredential=pdfrenderserver.crt:/etc/letsencrypt/live/pdfrender.example.com/fullchain.pem
-LoadCredential=pdfrenderserver.key:/etc/letsencrypt/live/pdfrender.example.com/privkey.pem
-Environment=PDFRENDERSERVER_CERT_FILE=%d/pdfrenderserver.crt
-Environment=PDFRENDERSERVER_KEY_FILE=%d/pdfrenderserver.key
-```
-
-Then reload and restart:
+If UFW is active and the service uses port `443`, allow standard HTTPS:
 
 ```bash
-sudo systemctl daemon-reload
-sudo systemctl restart pdfrenderserver
+sudo ufw allow 443/tcp comment 'PDFrenderServer HTTPS'
+sudo ufw reload
+sudo ufw status verbose
 ```
+
+## SSL/TLS
+
+PDFrenderServer uses HTTPS by default, but the development certificate is not publicly trusted. At this stage, the simplest setup is to accept or bypass the browser warning on the TV.
+
+The warning means the browser does not trust the certificate issuer. It does not mean PDFrenderServer failed to start HTTPS.
+
+### Default Certificate
+
+When no certificate is configured, PDFrenderServer generates a local certificate automatically. This is enough for encrypted LAN traffic, but browsers and TVs will usually show a warning.
+
+Current practical TV URL:
+
+```text
+https://LANIPAddress:8443/
+```
+
+For example:
+
+```text
+https://192.168.0.87:8443/
+```
+
+### Optional Trusted Local TLS
+
+For a local Ubuntu browser, you can create and trust a local certificate authority:
+
+```bash
+./scripts/setup-local-tls.sh
+sudo cp certs/local/pdfrenderserver-local-ca.crt /usr/local/share/ca-certificates/pdfrenderserver-local-ca.crt
+sudo update-ca-certificates
+```
+
+Restart the browser, then run:
+
+```bash
+./scripts/run-dev.sh
+```
+
+This only helps client devices that trust `certs/local/pdfrenderserver-local-ca.crt`. Many TVs do not provide a practical way to install that trust.
+
+### Optional Public Certificate For TV
+
+To avoid TV warnings without importing a local CA, use a real DNS name and a publicly trusted certificate:
+
+```text
+https://pdfrender.example.com/https://example.com/file.pdf
+```
+
+Recommended deployment:
+
+1. Choose a DNS name you control, for example `pdfrender.example.com`.
+2. Configure your router, Pi-hole, dnsmasq, or other local DNS so the TV resolves that name to the Ubuntu server's LAN IP address.
+3. Obtain a publicly trusted TLS certificate for that DNS name, for example with Let's Encrypt/Certbot.
+4. Run PDFrenderServer with that certificate and key.
+
+DNS validation is usually the best certificate validation method for a LAN-only server because the PDFrenderServer host does not need to accept inbound traffic from the public internet. With Certbot's manual DNS flow:
+
+```bash
+sudo apt-get install -y certbot
+sudo certbot certonly --manual --preferred-challenges dns -d pdfrender.example.com
+```
+
+After the certificate is issued, run PDFrenderServer with the generated files:
+
+```bash
+sudo python3 -m pdfrenderserver.server --host 0.0.0.0 --port 443 --cert-file /etc/letsencrypt/live/pdfrender.example.com/fullchain.pem --key-file /etc/letsencrypt/live/pdfrender.example.com/privkey.pem
+```
+
+For a systemd service using a Let's Encrypt certificate, use the example override:
+
+```text
+systemd/pdfrenderserver-letsencrypt.override.example.conf
+```
+
+### HTTP Without TLS
+
+For local debugging only:
+
+```bash
+./scripts/run-http-dev.sh
+```
+
+This starts a plain HTTP server on `127.0.0.1:8000` by default. Do not use this for normal TV/LAN viewing unless you intentionally want no HTTPS.
 
 ## Tests
 
