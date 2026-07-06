@@ -1,0 +1,7 @@
+.cache/
+__pycache__/
+*.py[cod]
+*.log
+certs/
+.pytest_cache/
+

@@ -1,0 +1,28 @@
+PDFrenderServer prerequisite applications
+========================================
+
+Required Ubuntu packages:
+
+- python3
+  - Runs the PDFrenderServer HTTPS application using the Python standard library.
+  - Detected version during setup: 3.12.3-0ubuntu2.1
+
+- poppler-utils
+  - Provides pdfinfo and pdftoppm for PDF metadata inspection and page rendering.
+  - Detected version during setup: 24.02.0-1ubuntu9.9
+
+- openssl
+  - Generates and serves a self-signed TLS certificate for local HTTPS.
+  - Detected version during setup: 3.0.13-0ubuntu3.11
+
+Install command:
+
+    sudo apt-get install -y python3 poppler-utils openssl
+
+Notes:
+
+- These packages were already present on the Ubuntu 24.04 LTS environment used for implementation.
+- On 2026-07-06, sudo apt-get install was attempted for the packages above, but this session could not provide a sudo password. Running apt-get directly also failed because dpkg locks require root.
+- No .deb package archives were present in /var/cache/apt/archives, so no package files were copied into this prerequisites directory.
+- /var/cache/apt/archive does not exist on this system; Ubuntu uses /var/cache/apt/archives.
+- sudo apt-get clean was attempted, but this session could not provide a sudo password. Running apt-get clean directly also failed because apt cache locks require root.
