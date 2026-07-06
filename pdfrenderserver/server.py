@@ -649,14 +649,16 @@ def build_server(host: str, port: int, cache_dir: Path, dpi: int, max_bytes: int
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Render remote PDF files as browser-viewable page images.")
+    cert_file = os.environ.get("PDFRENDERSERVER_CERT_FILE")
+    key_file = os.environ.get("PDFRENDERSERVER_KEY_FILE")
     parser.add_argument("--host", default=os.environ.get("PDFRENDERSERVER_HOST", "0.0.0.0"))
     parser.add_argument("--port", type=int, default=int(os.environ.get("PDFRENDERSERVER_PORT", "8443")))
     parser.add_argument("--cache-dir", type=Path, default=Path(os.environ.get("PDFRENDERSERVER_CACHE_DIR", DEFAULT_CACHE_DIR)))
     parser.add_argument("--dpi", type=int, default=int(os.environ.get("PDFRENDERSERVER_DPI", str(DEFAULT_DPI))))
     parser.add_argument("--max-bytes", type=int, default=int(os.environ.get("PDFRENDERSERVER_MAX_BYTES", str(DEFAULT_MAX_BYTES))))
     parser.add_argument("--http", action="store_true", help="Run without TLS. Use only for local testing.")
-    parser.add_argument("--cert-file", type=Path, default=None)
-    parser.add_argument("--key-file", type=Path, default=None)
+    parser.add_argument("--cert-file", type=Path, default=Path(cert_file) if cert_file else None)
+    parser.add_argument("--key-file", type=Path, default=Path(key_file) if key_file else None)
     return parser.parse_args(argv)
 
 
@@ -689,4 +691,3 @@ def main(argv: list[str] | None = None) -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

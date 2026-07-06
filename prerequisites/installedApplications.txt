@@ -12,12 +12,16 @@ Required Ubuntu packages:
   - Detected version during setup: 24.02.0-1ubuntu9.9
 
 - openssl
-  - Generates and serves a self-signed TLS certificate for local HTTPS.
+  - Generates local TLS certificates for HTTPS.
   - Detected version during setup: 3.0.13-0ubuntu3.11
+
+- ca-certificates
+  - Installs Ubuntu's trusted CA certificate store management files and update-ca-certificates.
+  - Detected version during setup: 20260601~24.04.1
 
 Install command:
 
-    sudo apt-get install -y python3 poppler-utils openssl
+    sudo apt-get install -y python3 poppler-utils openssl ca-certificates
 
 Notes:
 
