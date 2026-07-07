@@ -1,0 +1,18 @@
+PDFrenderServer is a PDF render webserver that enables a device webbrowser (e.g. TV) that does not support native PDF rendering to view PDFs as images. 
+	- it typically operates internally on a local area network (hosted on a linux ubuntu 24.04 LTS operating system).
+	- PDFrenderServer URL to render PDFs is https://PDFrenderServerIPAddress/[URLtoPDF]
+	- if no [URLtoPDF] is provided (i.e. just https://PDFrenderServerIPAddress) a text box and submit button is exposed where the user can manually enter the [URLtoPDF].
+	- the PDFrenderServer renders the pdf as images (like google drive):
+		- it has a scroll bar to allow them to move to the next page
+		- it also enables zoom in/out via small overlayed buttons in the top right corner.
+		- it has any other basic PDF rendering functionality you think is critical for the application.
+
+Please create the git repository called PDFrenderServer in folder git.
+	- install any necessary applications (e.g. webserver) to run PDFrenderServer via apt-get install
+		- document all installed applications to file prerequisites/installedApplications.txt
+		- copy all downloaded applications from /var/cache/apt/archive to prerequisites folder
+		- perform apt-get clean after installing all prerequisites
+	- implement PDFrenderServer using your recommended programming language.
+	- test the PDFrenderServer by running it in a webbrowser;
+		https://PDFrenderServerIPAddress/[URLtoPDF] where PDFrenderServerIPAddress is the local host.
+		https://PDFrenderServerIPAddress is not required to be thorougly tested unless you have the ability to use the mouse and keyboard to control the browser.
