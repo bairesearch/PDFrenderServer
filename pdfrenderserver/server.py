@@ -74,9 +74,6 @@ class DocumentCache:
         document_id = self.document_id(source_url)
         lock = self._lock_for(document_id)
         with lock:
-            metadata = self._load_metadata(document_id)
-            if metadata and self.pdf_path(document_id).exists():
-                return metadata
             return self._download_and_inspect(document_id, source_url)
 
     def render_page(self, document_id: str, page_number: int) -> Path:
@@ -140,9 +137,18 @@ class DocumentCache:
                 tmp_path.unlink(missing_ok=True)
                 raise
 
+        revision = sha256_file(tmp_path)
+        previous_metadata = self._load_metadata(document_id)
         pdf_path = self.pdf_path(document_id)
+
+        if previous_metadata and previous_metadata.get("revision") == revision and pdf_path.exists():
+            tmp_path.unlink(missing_ok=True)
+            return previous_metadata
+
+        pages = inspect_pdf_pages(tmp_path)
+        shutil.rmtree(pages_dir, ignore_errors=True)
+        pages_dir.mkdir(parents=True, exist_ok=True)
         tmp_path.replace(pdf_path)
-        pages = inspect_pdf_pages(pdf_path)
         metadata = {
             "id": document_id,
             "source_url": source_url,
@@ -150,6 +156,7 @@ class DocumentCache:
             "bytes": bytes_written,
             "pages": pages,
             "dpi": self.dpi,
+            "revision": revision,
             "created_at": int(time.time()),
         }
         self._save_metadata(document_id, metadata)
@@ -296,11 +303,12 @@ class PDFRenderRequestHandler(BaseHTTPRequestHandler):
         metadata = self.cache.get_document(source_url)
         document_id = metadata["id"]
         pages = int(metadata["pages"])
+        revision = metadata["revision"]
         safe_title = html.escape(Path(urlsplit(source_url).path).name or "PDF")
         safe_source = html.escape(source_url)
         source_json = json.dumps(source_url)
         image_tags = "\n".join(
-            f'      <img class="page-image" id="page-{page}" src="/_pdfrs/image/{document_id}/{page}.jpg" '
+            f'      <img class="page-image" id="page-{page}" src="/_pdfrs/image/{document_id}/{page}.jpg?v={revision}" '
             f'alt="Page {page}" loading="lazy" decoding="async">'
             for page in range(1, pages + 1)
         )
@@ -586,6 +594,14 @@ def download_pdf(source_url: str, output, max_bytes: int) -> tuple[int, str]:
         raise ClientError(f"The PDF URL returned HTTP {exc.code}.") from exc
     except URLError as exc:
         raise ClientError(f"Could not download the PDF: {exc.reason}") from exc
+
+
+def sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        while chunk := handle.read(1024 * 1024):
+            digest.update(chunk)
+    return digest.hexdigest()
 
 
 def inspect_pdf_pages(pdf_path: Path) -> int:

@@ -40,12 +40,14 @@ def sample_pdf_bytes() -> bytes:
 
 
 class PDFOriginHandler(BaseHTTPRequestHandler):
+    pdf_data = sample_pdf_bytes()
+
     def do_GET(self) -> None:
         if self.path != "/sample.pdf":
             self.send_response(404)
             self.end_headers()
             return
-        data = sample_pdf_bytes()
+        data = self.pdf_data
         self.send_response(200)
         self.send_header("Content-Type", "application/pdf")
         self.send_header("Content-Length", str(len(data)))
@@ -101,6 +103,48 @@ class SmokeTest(unittest.TestCase):
 
         self.assertEqual(content_type, "image/jpeg")
         self.assertTrue(image.startswith(b"\xff\xd8"))
+
+
+    def test_changed_pdf_invalidates_pages_and_changes_image_urls(self) -> None:
+        if shutil.which("pdfinfo") is None or shutil.which("pdftoppm") is None:
+            self.skipTest("poppler-utils is not installed")
+
+        PDFOriginHandler.pdf_data = sample_pdf_bytes()
+        origin = ThreadingHTTPServer(("127.0.0.1", 0), PDFOriginHandler)
+        start_server(origin)
+        temp_dir = tempfile.TemporaryDirectory()
+        self.addCleanup(temp_dir.cleanup)
+        renderer = build_server(
+            "127.0.0.1", 0, cache_dir=Path(temp_dir.name) / "cache",
+            dpi=72, max_bytes=5 * 1024 * 1024,
+        )
+        start_server(renderer)
+        self.addCleanup(renderer.shutdown)
+        self.addCleanup(renderer.server_close)
+        self.addCleanup(origin.shutdown)
+        self.addCleanup(origin.server_close)
+
+        source_url = f"http://127.0.0.1:{origin.server_port}/sample.pdf"
+        viewer_url = f"http://127.0.0.1:{renderer.server_port}/_pdfrs/open?url={source_url}"
+        with urlopen(viewer_url, timeout=10) as response:
+            first_html = response.read().decode("utf-8")
+        first_image = first_html.split("/_pdfrs/image/", 1)[1].split(chr(34), 1)[0]
+        with urlopen(f"http://127.0.0.1:{renderer.server_port}/_pdfrs/image/{first_image}", timeout=20):
+            pass
+
+        document_id = renderer.cache.document_id(source_url)
+        page_path = renderer.cache.pages_dir(document_id) / "page-0001.jpg"
+        self.assertTrue(page_path.exists())
+
+        PDFOriginHandler.pdf_data = sample_pdf_bytes().replace(
+            b"PDFrenderServer smoke test", b"PDFrenderServer revised!!!"
+        )
+        with urlopen(viewer_url, timeout=10) as response:
+            second_html = response.read().decode("utf-8")
+        second_image = second_html.split("/_pdfrs/image/", 1)[1].split(chr(34), 1)[0]
+
+        self.assertNotEqual(first_image, second_image)
+        self.assertFalse(page_path.exists())
 
 
 if __name__ == "__main__":
