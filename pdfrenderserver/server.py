@@ -26,6 +26,8 @@ SERVER_NAME = "PDFrenderServer"
 DEFAULT_CACHE_DIR = "/tmp/pdfrenderserver-cache"
 DEFAULT_MAX_BYTES = 250 * 1024 * 1024
 DEFAULT_DPI = 150
+DOWNLOAD_ATTEMPTS = 3
+RETRYABLE_HTTP_STATUSES = {502, 503, 504}
 
 
 class ClientError(Exception):
@@ -34,6 +36,14 @@ class ClientError(Exception):
 
 class RenderError(Exception):
     """Internal render failure with a user-facing message."""
+
+
+class DownloadError(Exception):
+    """An upstream download failure with a user-facing HTTP status."""
+
+    def __init__(self, message: str, status: HTTPStatus = HTTPStatus.BAD_GATEWAY) -> None:
+        super().__init__(message)
+        self.status = status
 
 
 class DocumentCache:
@@ -184,6 +194,8 @@ class PDFRenderRequestHandler(BaseHTTPRequestHandler):
     def do_GET(self) -> None:
         try:
             self._dispatch_get()
+        except DownloadError as exc:
+            self.respond_error_page(exc.status, str(exc))
         except (ClientError, RenderError) as exc:
             self.respond_error_page(HTTPStatus.BAD_REQUEST, str(exc))
         except TimeoutError:
@@ -564,36 +576,59 @@ def validate_source_url(source_url: str) -> str:
 
 
 def download_pdf(source_url: str, output, max_bytes: int) -> tuple[int, str]:
-    request = Request(
-        source_url,
-        headers={
-            "User-Agent": f"{SERVER_NAME}/1.0",
-            "Accept": "application/pdf,*/*;q=0.8",
-        },
-    )
-    try:
-        with urlopen(request, timeout=30) as response:
-            content_type = response.headers.get("Content-Type", "application/octet-stream")
-            content_length = response.headers.get("Content-Length")
-            if content_length and int(content_length) > max_bytes:
-                raise ClientError(f"The PDF is larger than the configured limit of {max_bytes} bytes.")
-
-            total = 0
-            while True:
-                chunk = response.read(1024 * 1024)
-                if not chunk:
-                    break
-                total += len(chunk)
-                if total > max_bytes:
+    start_position = output.tell()
+    for attempt in range(DOWNLOAD_ATTEMPTS):
+        request = Request(
+            source_url,
+            headers={
+                "User-Agent": f"{SERVER_NAME}/1.0",
+                "Accept": "application/pdf,*/*;q=0.8",
+            },
+        )
+        try:
+            # Start at the original URL on every attempt to refresh redirects,
+            # including the signed download URLs used by GitHub release assets.
+            with urlopen(request, timeout=30) as response:
+                content_type = response.headers.get("Content-Type", "application/octet-stream")
+                content_length = response.headers.get("Content-Length")
+                if content_length and int(content_length) > max_bytes:
                     raise ClientError(f"The PDF is larger than the configured limit of {max_bytes} bytes.")
-                output.write(chunk)
-            if total == 0:
-                raise ClientError("The PDF URL returned an empty response.")
-            return total, content_type
-    except HTTPError as exc:
-        raise ClientError(f"The PDF URL returned HTTP {exc.code}.") from exc
-    except URLError as exc:
-        raise ClientError(f"Could not download the PDF: {exc.reason}") from exc
+
+                total = 0
+                while True:
+                    chunk = response.read(1024 * 1024)
+                    if not chunk:
+                        break
+                    total += len(chunk)
+                    if total > max_bytes:
+                        raise ClientError(f"The PDF is larger than the configured limit of {max_bytes} bytes.")
+                    output.write(chunk)
+                if total == 0:
+                    raise ClientError("The PDF URL returned an empty response.")
+                return total, content_type
+        except (HTTPError, URLError, TimeoutError) as exc:
+            status = HTTPStatus.BAD_GATEWAY
+            if isinstance(exc, HTTPError):
+                retryable = exc.code in RETRYABLE_HTTP_STATUSES
+                message = f"The PDF URL returned HTTP {exc.code}."
+                if exc.code == HTTPStatus.GATEWAY_TIMEOUT:
+                    status = HTTPStatus.GATEWAY_TIMEOUT
+                exc.close()
+            else:
+                reason = exc.reason if isinstance(exc, URLError) else exc
+                retryable = isinstance(reason, TimeoutError)
+                message = f"Could not download the PDF: {reason}"
+                if retryable:
+                    status = HTTPStatus.GATEWAY_TIMEOUT
+                    message = "The PDF download timed out."
+
+            if not retryable or attempt == DOWNLOAD_ATTEMPTS - 1:
+                raise DownloadError(message, status) from exc
+
+            # A read timeout can occur after bytes have already been written.
+            output.seek(start_position)
+            output.truncate()
+            time.sleep(2 ** attempt)
 
 
 def sha256_file(path: Path) -> str:
